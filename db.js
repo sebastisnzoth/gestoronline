@@ -83,11 +83,25 @@ function initializeTables() {
       client_id INTEGER NOT NULL,
       slot_id INTEGER NOT NULL,
       status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'confirmed', 'in_progress', 'completed', 'cancelled')),
+      duration_minutes INTEGER,
       admin_notes TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (client_id) REFERENCES clients(id),
       FOREIGN KEY (slot_id) REFERENCES time_slots(id)
+    )
+  `);
+
+  // Multi-service link table per appointment
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS appointment_services (
+      appointment_id INTEGER NOT NULL,
+      service_id INTEGER NOT NULL,
+      duration_minutes INTEGER NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (appointment_id, service_id),
+      FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE,
+      FOREIGN KEY (service_id) REFERENCES services(id)
     )
   `);
 

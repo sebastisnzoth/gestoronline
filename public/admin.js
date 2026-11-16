@@ -92,7 +92,17 @@ async function loadAppointments() {
       return;
     }
     
-    container.innerHTML = turns.map(turn => `
+    container.innerHTML = turns.map(turn => {
+      const svcList = Array.isArray(turn.services) && turn.services.length
+        ? turn.services
+        : [{ name: turn.service_name, duration_minutes: turn.total_duration_minutes }];
+      const isMulti = svcList.length > 1;
+      const servicesMarkup = isMulti
+        ? `<div class="flex flex-wrap gap-1.5 mt-1">${svcList.map(s => `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-800 border border-indigo-200 text-xs font-medium">${esc(s.name)}${s.duration_minutes ? ` <span class="text-indigo-500">(${esc(s.duration_minutes)}m)</span>` : ''}</span>`).join('')}</div>`
+        : `<span>${esc(turn.service_name)}</span>`;
+      const timeRange = turn.end_time ? `${esc(turn.time)} – ${esc(turn.end_time)}` : esc(turn.time);
+      const durationInfo = turn.total_duration_minutes ? ` · ⏱ ${esc(turn.total_duration_minutes)} min` : '';
+      return `
       <div class="border rounded-lg p-4 bg-gray-50">
         <div class="flex justify-between items-start">
           <div>
@@ -100,22 +110,23 @@ async function loadAppointments() {
             <div class="text-sm text-gray-500">${esc(turn.email)}</div>
             <div class="text-sm text-gray-500">${esc(turn.phone)}</div>
           </div>
-          <span class="px-3 py-1 rounded-full text-xs font-medium status-badge-${turn.status}">
+          <span class="px-3 py-1 rounded-full text-xs font-medium ${getStatusClass(turn.status)} status-badge-${turn.status}">
             ${getStatusText(turn.status)}
           </span>
         </div>
-        <div class="mt-3 text-sm">
-          <div><strong>Servicio:</strong> ${esc(turn.service_name)}</div>
-          <div><strong>Fecha/Hora:</strong> ${esc(turn.date)} ${esc(turn.time)}</div>
+        <div class="mt-3 text-sm space-y-1">
+          <div><strong>${isMulti ? `Servicios (${svcList.length}):` : 'Servicio:'}</strong> ${servicesMarkup}</div>
+          <div><strong>Fecha/Hora:</strong> ${esc(turn.date)} · ${timeRange}${durationInfo}</div>
           ${turn.country ? `<div><strong>País:</strong> ${esc(turn.country)}</div>` : ''}
           ${turn.request_details ? `<div class="mt-2 whitespace-pre-wrap"><strong>Solicitud:</strong> ${esc(turn.request_details)}</div>` : ''}
           ${turn.admin_notes ? `<div class="mt-2 text-blue-600"><strong>Nota:</strong> ${esc(turn.admin_notes)}</div>` : ''}
         </div>
-        <div class="mt-3 flex gap-2">
+        <div class="mt-3 flex flex-wrap gap-2">
           ${getActionButtons(turn)}
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
     
   } catch (err) {
     container.innerHTML = '<div class="text-center py-8 text-red-500">Error al cargar turnos</div>';

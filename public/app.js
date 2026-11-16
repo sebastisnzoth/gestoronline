@@ -21,7 +21,7 @@ const translations = {
     labelNotes: 'Notas (opcional)',
     placeholderNotes: '¿Alguna consulta o detalle adicional?',
     confTitle: '¡Turno confirmado!',
-    confMsg: 'Hemos registrado tu solicitud. Recibirás una confirmación por correo y WhatsApp.',
+    confMsg: 'Hemos registrado tu solicitud.',
     footerText: '© 2026 Gestoría Internacional. Todos los derechos reservados.',
     footerNote: 'Atención personalizada para extranjeros en Argentina.',
     available: 'Disponible',
@@ -49,7 +49,7 @@ const translations = {
     labelNotes: 'Observações (opcional)',
     placeholderNotes: 'Alguma dúvida ou detalhe adicional?',
     confTitle: '¡Horário confirmado!',
-    confMsg: 'Registrámos sua solicitação. Você receberá uma confirmação por e-mail e WhatsApp.',
+    confMsg: 'Registrámos sua solicitação.',
     footerText: '© 2026 Cartório Internacional. Todos os direitos reservados.',
     footerNote: 'Atendimento personalizado para estrangeiros na Argentina.',
     available: 'Disponível',
@@ -77,7 +77,7 @@ const translations = {
     labelNotes: 'Notes (optional)',
     placeholderNotes: 'Any questions or additional details?',
     confTitle: 'Appointment confirmed!',
-    confMsg: 'We have registered your request. You will receive a confirmation by email and WhatsApp.',
+    confMsg: 'We have registered your request.',
     footerText: '© 2026 International Notary. All rights reserved.',
     footerNote: 'Personalized attention for foreigners in Argentina.',
     available: 'Available',
@@ -105,7 +105,7 @@ const translations = {
     labelNotes: 'Примечания (необязательно)',
     placeholderNotes: 'Есть ли у вас вопросы или дополнительные сведения?',
     confTitle: 'Запись подтверждена!',
-    confMsg: 'Ваша заявка зарегистрирована. Вы получите подтверждение по электронной почте и WhatsApp.',
+    confMsg: 'Ваша заявка зарегистрирована.',
     footerText: '© 2026 Международное нотариальное агентство. Все права защищены.',
     footerNote: 'Индивидуальный подход к иностранцам в Аргентине.',
     available: 'Свободно',
@@ -133,7 +133,7 @@ const translations = {
     labelNotes: '备注（可选）',
     placeholderNotes: '有任何问题或需要补充的信息吗？',
     confTitle: '预约已确认！',
-    confMsg: '我们已登记您的申请。您将收到邮件和WhatsApp的确认通知。',
+    confMsg: '您的预约申请已登记。',
     footerText: '© 2026 国际公证处。保留所有权利。',
     footerNote: '专为在阿根廷的外国人提供个性化服务。',
     available: '可预约',
@@ -146,6 +146,7 @@ let currentLang = 'es';
 let currentService = null;
 let currentSlot = null;
 let clientId = null;
+const escapeHtml = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // ===== i18n Functions =====
 function changeLang(lang) {
@@ -179,8 +180,8 @@ async function loadServices() {
       card.onclick = () => selectService(s.id);
       card.id = `svc-${s.id}`;
       card.innerHTML = `
-        <h4 class="font-semibold text-gray-900">${s.name}</h4>
-        <p class="text-sm text-gray-500 mt-1">${s.description || ''}</p>
+        <h4 class="font-semibold text-gray-900">${escapeHtml(s.name)}</h4>
+        <p class="text-sm text-gray-500 mt-1">${escapeHtml(s.description)}</p>
         <p class="text-xs text-gray-400 mt-2">⏱ ${s.duration_minutes} min</p>
       `;
       grid.appendChild(card);
@@ -191,6 +192,8 @@ async function loadServices() {
 }
 
 function selectService(id) {
+  currentSlot = null;
+  document.getElementById('btnStep2').classList.add('hidden');
   // Find service name from loaded list
   const card = document.getElementById(`svc-${id}`);
   currentService = { id, name: card.querySelector('h4').textContent };
@@ -278,6 +281,8 @@ function showDateSelector() {
     <div id="slotsGrid" class="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2"></div>
   `;
   document.getElementById('datePicker').addEventListener('change', (e) => {
+    currentSlot = null;
+    document.getElementById('btnStep2').classList.add('hidden');
     const selectedDate = e.target.value;
     const err = document.getElementById('dateError');
     err.classList.add('hidden');
@@ -340,7 +345,7 @@ document.getElementById('regForm').addEventListener('submit', async (e) => {
     const bookRes = await fetch('/api/book', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_id: clientId, slot_id: currentSlot.slot_id })
+      body: JSON.stringify({ client_id: clientId, registration_token: regData.registration_token, slot_id: currentSlot.slot_id })
     });
     const bookData = await bookRes.json();
     
@@ -350,7 +355,7 @@ document.getElementById('regForm').addEventListener('submit', async (e) => {
     hideSteps();
     document.getElementById('confirmation').classList.remove('hidden');
     document.getElementById('confirmDetails').innerHTML = `
-      <strong>Servicio:</strong> ${currentService?.name || 'N/A'}<br>
+      <strong>Servicio:</strong> ${escapeHtml(currentService?.name || 'N/A')}<br>
       <strong>Fecha:</strong> ${currentSlot.date}<br>
       <strong>Hora:</strong> ${currentSlot.time}<br>
       <strong>Turno N°:</strong> ${bookData.appointment_id}

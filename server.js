@@ -1,326 +1,40 @@
 require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const nodemailer = require('nodemailer');
-const path = require('path');
-const { getDb, closeDb } = require('./db');
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
-
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Transports para notificaciones
-let emailTransporter = null;
-if (process.env.SMTP_HOST) {
-  emailTransporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT) || 587,
-    auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : null,
-  });
-}
-
-// ===== ADMIN AUTH =====
-app.post('/api/admin/login', (req, res) => {
-  const { password } = req.body;
-  if (password === ADMIN_PASSWORD) {
-    const token = btoa(`${Date.now()}:${ADMIN_PASSWORD}`);
-    res.json({ token, name: 'Administrador' });
-  } else {
-    res.status(401).json({ error: 'Contraseña incorrecta' });
-  }
-});
-
-// ===== CLIENTES =====
-app.post('/api/register', (req, res) => {
-  try {
-    const db = getDb();
-    const { full_name, email, phone, country, doc_type, doc_number, language, notes } = req.body;
-    
-    // Verificar si ya existe
-    const existing = db.prepare('SELECT id FROM clients WHERE email = ? OR phone = ?').get(email, phone);
-    
-    let clientId;
-    if (existing) {
-      clientId = existing.id;
-      db.prepare(`UPDATE clients SET full_name=?, country=?, doc_type=?, doc_number=?, language=?, notes=? WHERE id=?`)
-        .run(full_name, country, doc_type, doc_number, language, notes, clientId);
-    } else {
-      const result = db.prepare(`INSERT INTO clients (full_name, email, phone, country, doc_type, doc_number, language, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(full_name, email, phone, country, doc_type, doc_number, language || 'es', notes || '');
-      clientId = result.lastInsertRowid;
-    }
-    
-    res.json({ success: true, client_id: Number(clientId), message: 'Registro exitoso' });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ===== SERVICIOS =====
-app.get('/api/services', (req, res) => {
-  try {
-    const db = getDb();
-    const services = db.prepare("SELECT * FROM services WHERE is_active = 1 ORDER BY name").all();
-    res.json(services);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Horarios disponibles para una fecha y servicio (materializa slots en BD)
-app.get('/api/slots', (req, res) => {
-  try {
-    const db = getDb();
-    const { date, service_id } = req.query;
-    
-    if (!date || !service_id) {
-      return res.status(400).json({ error: 'Faltan parámetros: date, service_id' });
-    }
-    
-    const service = db.prepare('SELECT duration_minutes FROM services WHERE id = ?').get(service_id);
-    if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
-    
-    const duration = service.duration_minutes || 30;
-    const today = new Date();
-    const dateObj = new Date(date + 'T12:00:00');
-    // Solo se permiten fechas a partir de hoy
-    if (dateObj < new Date(today.toDateString())) {
-      return res.json([]);
-    }
-    // Solo días hábiles (lun-vie)
-    const day = dateObj.getDay();
-    if (day === 0 || day === 6) {
-      return res.json([]);
-    }
-    
-    const slots = [];
-    const findSlot = db.prepare('SELECT id, status, client_id FROM time_slots WHERE date = ? AND time = ? AND service_id = ?');
-    const insertSlot = db.prepare("INSERT INTO time_slots (date, time, service_id, status) VALUES (?, ?, ?, 'available')");
-    
-    for (let h = 9; h < 18; h++) {
-      for (let m = 0; m < 60; m += duration) {
-        // El turno debe terminar antes de las 18:00
-        if (h + Math.ceil(m / 60) > 18) continue;
-        
-        const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-        let slot = findSlot.get(date, timeStr, service_id);
-        
-        if (!slot) {
-          // Materializar el slot en la base de datos
-          const r = insertSlot.run(date, timeStr, service_id);
-          slot = { id: Number(r.lastInsertRowid), status: 'available', client_id: null };
-        }
-        
-        slots.push({
-          date,
-          time: timeStr,
-          available: slot.status === 'available',
-          slot_id: slot.id
-        });
-      }
-    }
-    
-    res.json(slots);
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Reservar turno
-app.post('/api/book', async (req, res) => {
-  try {
-    const db = getDb();
-    const { client_id, slot_id } = req.body;
-    
-    const slot = db.prepare('SELECT * FROM time_slots WHERE id = ?').get(slot_id);
-    if (!slot || slot.status !== 'available') {
-      return res.status(400).json({ error: 'Turno no disponible' });
-    }
-    
-    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(client_id);
-    if (!client) return res.status(400).json({ error: 'Cliente no encontrado' });
-    
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-
-    // Todo el alta de turno en una transacción: si falla la notificación,
-    // appointment y slot se deshacen (no quedan huérfanos).
-    const createAppointment = db.transaction(() => {
-      const apptId = db.prepare(`INSERT INTO appointments (client_id, slot_id, status) VALUES (?, ?, 'pending')`)
-        .run(client_id, slot_id).lastInsertRowid;
-
-      db.prepare('UPDATE time_slots SET is_booked = 1, client_id = ?, status = ? WHERE id = ?')
-        .run(client_id, 'booked', slot_id);
-
-      // better-sqlite3 solo enlaza números/cadenas/buffers/null: usamos 0/1, no booleanos JS.
-      db.prepare(
-        'INSERT INTO notifications (appointment_id, type, channel, to_email, to_phone, sent, error) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(apptId, 'appointment_created', 'email', client.email, client.phone, 0, null);
-
-      return Number(apptId);
-    });
-
-    const appointmentId = createAppointment();
-
-    // Enviar email (si configurado)
-    if (emailTransporter) {
-      try {
-        await sendEmailNotification(client, slot);
-        db.prepare('UPDATE notifications SET sent = 1 WHERE appointment_id = ? AND channel = "email"')
-          .run(appointmentId);
-      } catch (e) {
-        console.log('Error envando email:', e.message);
-        db.prepare('UPDATE notifications SET sent = 0, error = ? WHERE appointment_id = ? AND channel = "email"')
-          .run(e.message.slice(0, 200), appointmentId);
-      }
-    }
-
-    // WhatsApp (mock hasta configurar)
-    sendWhatsAppNotification(client, slot).catch(() => {});
-
-    res.json({ success: true, appointment_id: appointmentId });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-async function sendEmailNotification(client, slot) {
-  const subject = 'Confirmación de Turno - Gestoría';
-  const html = `
-    <h2>¡Turno confirmado!</h2>
-    <p>Hola ${client.full_name}, tu turno ha sido registrado correctamente.</p>
-    <ul>
-      <li><strong>Servicio:</strong> [Nombre del servicio]</li>
-      <li><strong>Fecha:</strong> ${slot.date}</li>
-      <li><strong>Hora:</strong> ${slot.time}</li>
-    </ul>
-    <p>Te esperamos en la gestoría.</p>
-  `;
-  
-  await emailTransporter.sendMail({
-    from: process.env.SMTP_FROM || 'gestoria@ejemplo.com',
-    to: client.email,
-    subject,
-    html
-  });
-}
-
-async function sendWhatsAppNotification(client, slot) {
-  // Placeholder para integración con WhatsApp API
-  console.log(`[WSP-MOCK] To: ${client.phone} | Mensaje: Turno confirmado - ${slot.date} ${slot.time}`);
-}
-
-// ===== PANEL DE CONTROL (Admin API) =====
-app.get('/api/admin/appointments', (req, res) => {
-  const db = getDb();
-  const stats = {
-    total: db.prepare('SELECT COUNT(*) as c FROM appointments').get().c,
-    pending: db.prepare("SELECT COUNT(*) as c FROM appointments WHERE status = 'pending'").get().c,
-    confirmed: db.prepare("SELECT COUNT(*) as c FROM appointments WHERE status = 'confirmed'").get().c,
-    completed: db.prepare("SELECT COUNT(*) as c FROM appointments WHERE status = 'completed'").get().c,
-    today: db.prepare(`
-      SELECT COUNT(*) as c FROM appointments a 
-      JOIN time_slots t ON a.slot_id = t.id 
-      WHERE t.date = DATE('now')
-    `).get().c
-  };
-  
-  const turnos = db.prepare(`
-    SELECT 
-      a.id as appointment_id, a.status, a.admin_notes, a.created_at, a.updated_at,
-      c.full_name, c.email, c.phone, c.country, c.doc_type, c.doc_number, c.language,
-      s.name as service_name, t.date, t.time, t.status as slot_status
-    FROM appointments a
-    JOIN clients c ON a.client_id = c.id
-    JOIN time_slots t ON a.slot_id = t.id
-    JOIN services s ON t.service_id = s.id
-    ORDER BY t.date DESC, t.time ASC
-  `).all();
-  
-  res.json({ stats, turns: turnos });
-});
-
-app.patch('/api/admin/appointments/:id/status', (req, res) => {
-  const db = getDb();
-  const { id } = req.params;
-  const { status } = req.body;
-  
-  if (!['pending', 'confirmed', 'in_progress', 'completed', 'cancelled'].includes(status)) {
-    return res.status(400).json({ error: 'Estado inválido' });
-  }
-  
-  db.prepare('UPDATE appointments SET status = ?, updated_at = datetime("now") WHERE id = ?').run(status, id);
-  
-  if (status === 'completed' || status === 'cancelled') {
-    db.prepare('UPDATE time_slots SET status = "available", client_id = NULL WHERE id IN (SELECT slot_id FROM appointments WHERE id = ?)').run(id);
-  }
-  
-  res.json({ success: true });
-});
-
-app.put('/api/admin/appointments/:id/notes', (req, res) => {
-  const db = getDb();
-  const { id } = req.params;
-  const { admin_notes } = req.body;
-  
-  db.prepare('UPDATE appointments SET admin_notes = ?, updated_at = datetime("now") WHERE id = ?').run(admin_notes, id);
-  res.json({ success: true });
-});
-
-app.get('/api/admin/services', (req, res) => {
-  const db = getDb();
-  const services = db.prepare('SELECT * FROM services ORDER BY name').all();
-  res.json(services);
-});
-
-app.post('/api/admin/services', (req, res) => {
-  const db = getDb();
-  const { name, description, duration_minutes } = req.body;
-  
-  const result = db.prepare('INSERT INTO services (name, description, duration_minutes) VALUES (?, ?, ?)').run(name, description, duration_minutes);
-  res.json({ success: true, id: result.lastInsertRowid });
-});
-
-app.put('/api/admin/services/:id', (req, res) => {
-  const db = getDb();
-  const { id } = req.params;
-  const { name, description, duration_minutes, is_active } = req.body;
-  
-  db.prepare('UPDATE services SET name=?, description=?, duration_minutes=?, is_active=? WHERE id=?').run(name, description, duration_minutes, is_active, id);
-  res.json({ success: true });
-});
-
-app.delete('/api/admin/services/:id', (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM services WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
-});
-
-// ===== HORARIOS =====
-app.get('/api/admin/horarios', (req, res) => {
-  // Retorna horarios existentes o default
-  const defaultSchedule = Array.from({length: 5}, (_, i) => ({
-    day: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][i],
-    start: '09:00',
-    end: '18:00'
-  }));
-  res.json(defaultSchedule);
-});
-
-// ===== HEALTH CHECK =====
-app.get('/health', (req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
-
-app.listen(PORT, () => {
-  console.log(`\n🚀 Servidor corriendo en http://localhost:${PORT}`);
-  console.log(`   Página principal: http://localhost:${PORT}/`);
-  console.log(`   Panel admin:      http://localhost:${PORT}/admin`);
-  console.log(`   Usuario: ${process.env.ADMIN_EMAIL || 'admin@gestoria.com'}`);
-  console.log(`   Password: ${ADMIN_PASSWORD}\n`);
-});
+const express=require('express'), {Pool}=require('pg'), crypto=require('node:crypto'), bcrypt=require('bcryptjs'), path=require('node:path');
+const app=express();
+const pool=new Pool({connectionString:process.env.DATABASE_URL,max:3,connectionTimeoutMillis:8000,idleTimeoutMillis:10000});
+const q=(s,p=[])=>pool.query(s,p);
+const fail=(status,message)=>Object.assign(new Error(message),{status});
+const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next);
+const secret=()=>{const s=process.env.SESSION_SECRET;if(!s||s.length<32)throw fail(503,'Configuración pendiente');return s};
+const sign=(kind,id,ttl)=>{const p=Buffer.from(JSON.stringify({kind,id,exp:Date.now()+ttl})).toString('base64url');return p+'.'+crypto.createHmac('sha256',secret()).update(p).digest('base64url')};
+function verify(token,kind){try{const [p,h,...rest]=String(token||'').split('.');if(rest.length||!p||!h)return null;const expected=crypto.createHmac('sha256',secret()).update(p).digest();const actual=Buffer.from(h,'base64url');if(actual.length!==expected.length||!crypto.timingSafeEqual(actual,expected))return null;const v=JSON.parse(Buffer.from(p,'base64url'));return v.kind===kind&&v.exp>Date.now()?v:null}catch{return null}}
+const tx=async fn=>{const c=await pool.connect();try{await c.query('BEGIN');const result=await fn(c);await c.query('COMMIT');return result}catch(e){await c.query('ROLLBACK');throw e}finally{c.release()}};
+const id=v=>{const n=Number(v);if(!Number.isSafeInteger(n)||n<1)throw fail(400,'Identificador inválido');return n};
+const str=(v,max,required=false)=>{if(v==null)v='';if(typeof v!=='string'||v.length>max||(required&&!v.trim()))throw fail(400,'Datos inválidos');return v.trim()};
+const duration=v=>{const n=Number(v);if(!Number.isInteger(n)||n<15||n>180)throw fail(400,'Duración inválida');return n};
+const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+const dateValue=v=>{if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v))throw fail(400,'Fecha inválida');const d=new Date(v+'T12:00:00Z');if(!Number.isFinite(+d)||d.toISOString().slice(0,10)!==v)throw fail(400,'Fecha inválida');return d};
+app.disable('x-powered-by');
+app.use(express.json({limit:'16kb'}));
+app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('Referrer-Policy','no-referrer');if(req.path.startsWith('/api/'))res.set('Cache-Control','no-store');next()});
+app.use(express.static(path.join(__dirname,'public')));
+app.get('/admin',(req,res)=>res.sendFile(path.join(__dirname,'public/admin.html')));
+const throttle=async(req,key,max)=>{const ip=req.headers['x-vercel-forwarded-for']||req.socket.remoteAddress||'unknown';const digest=crypto.createHmac('sha256',secret()).update(key+':'+ip).digest('hex');const {rows}=await q("INSERT INTO request_limits(bucket,window_start,hits) VALUES($1,date_trunc('hour',now()),1) ON CONFLICT(bucket) DO UPDATE SET hits=CASE WHEN request_limits.window_start=excluded.window_start THEN request_limits.hits+1 ELSE 1 END,window_start=excluded.window_start RETURNING hits",[digest]);if(rows[0].hits>max)throw fail(429,'Intenta más tarde')};
+app.post('/api/admin/login',wrap(async(req,res)=>{await throttle(req,'login',10);const password=str(req.body.password,200,true);const hash=process.env.ADMIN_PASSWORD_HASH;if(!hash||!await bcrypt.compare(password,hash))throw fail(401,'Credenciales inválidas');res.json({token:sign('admin',1,3600000),name:'Administrador'})}));
+app.use('/api/admin',(req,res,next)=>verify(req.headers.authorization?.replace(/^Bearer /,''),'admin')?next():next(fail(401,'No autorizado')));
+app.get('/health',wrap(async(req,res)=>{await q('SELECT 1');res.json({ok:true})}));
+app.get('/api/services',wrap(async(req,res)=>res.json((await q('SELECT id,name,description,duration_minutes FROM services WHERE is_active=true ORDER BY name')).rows)));
+app.post('/api/register',wrap(async(req,res)=>{await throttle(req,'register',30);const b=req.body;const email=str(b.email,254,true).toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw fail(400,'Email inválido');const vals=[str(b.full_name,150,true),email,str(b.phone,40,true),str(b.country,100),str(b.doc_type,50),str(b.doc_number,80),['es','pt','en','ru','zh'].includes(b.language)?b.language:'es',str(b.notes,1000)];const {rows}=await q('INSERT INTO clients(full_name,email,phone,country,doc_type,doc_number,language,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',vals);res.json({success:true,client_id:rows[0].id,registration_token:sign('client',rows[0].id,900000)})}));
+app.get('/api/slots',wrap(async(req,res)=>{const date=req.query.date,d=dateValue(date),service=id(req.query.service_id);if(date<today()||+d>Date.now()+91*86400000||[0,6].includes(d.getUTCDay()))return res.json([]);const rows=await tx(async c=>{const svc=(await c.query('SELECT duration_minutes FROM services WHERE id=$1 AND is_active=true',[service])).rows[0];if(!svc)throw fail(404,'Servicio no encontrado');await c.query("INSERT INTO time_slots(date,time,service_id,status) SELECT $1::date,t::time,$2,'available' FROM generate_series($1::date+time '09:00',$1::date+time '18:00'-make_interval(mins=>$3),make_interval(mins=>$3)) t ON CONFLICT(date,time,service_id) DO NOTHING",[date,service,svc.duration_minutes]);return (await c.query(`SELECT t.id AS slot_id,t.date::text, to_char(t.time,'HH24:MI') AS time, (t.status='available' AND (t.date+t.time) > (now() AT TIME ZONE 'America/Argentina/Buenos_Aires') AND NOT EXISTS(SELECT 1 FROM appointments a JOIN time_slots x ON x.id=a.slot_id JOIN services s ON s.id=x.service_id WHERE a.status<>'cancelled' AND x.date=t.date AND x.time<t.time+make_interval(mins=>$3) AND t.time<x.time+make_interval(mins=>s.duration_minutes))) AS available FROM time_slots t WHERE t.date=$1 AND t.service_id=$2 AND t.time>=time '09:00' AND t.time+make_interval(mins=>$3)<=time '18:00' AND (extract(epoch from t.time-time '09:00')::int % ($3*60))=0 ORDER BY t.time`,[date,service,svc.duration_minutes])).rows});res.json(rows)}));
+app.post('/api/book',wrap(async(req,res)=>{await throttle(req,'book',30);const client=id(req.body.client_id),slot=id(req.body.slot_id);if(verify(req.body.registration_token,'client')?.id!==client)throw fail(401,'Registro expirado');const result=await tx(async c=>{await c.query('SELECT pg_advisory_xact_lock(772019)');const s=(await c.query("SELECT t.*,s.duration_minutes FROM time_slots t JOIN services s ON s.id=t.service_id WHERE t.id=$1 AND s.is_active=true AND t.date+t.time>now() AT TIME ZONE 'America/Argentina/Buenos_Aires' FOR UPDATE OF t",[slot])).rows[0];if(!s||s.status!=='available')throw fail(409,'Turno no disponible');const conflict=await c.query("SELECT 1 FROM appointments a JOIN time_slots t ON t.id=a.slot_id JOIN services s ON s.id=t.service_id WHERE a.status<>'cancelled' AND t.date=$1 AND t.time<$2::time+make_interval(mins=>$3) AND $2::time<t.time+make_interval(mins=>s.duration_minutes) LIMIT 1",[s.date,s.time,s.duration_minutes]);if(conflict.rowCount)throw fail(409,'Turno no disponible');const used=await c.query('SELECT 1 FROM appointments WHERE client_id=$1',[client]);if(used.rowCount)throw fail(409,'Registro ya utilizado');const a=(await c.query("INSERT INTO appointments(client_id,slot_id,status) VALUES($1,$2,'pending') RETURNING id",[client,slot])).rows[0];await c.query("UPDATE time_slots SET is_booked=true,client_id=$1,status='booked' WHERE id=$2",[client,slot]);return a.id});res.json({success:true,appointment_id:result,notification:'not_configured'})}));
+app.get('/api/admin/appointments',wrap(async(req,res)=>{const stats=(await q("SELECT count(*)::int total,count(*) FILTER(WHERE a.status='pending')::int pending,count(*) FILTER(WHERE a.status='confirmed')::int confirmed,count(*) FILTER(WHERE a.status='completed')::int completed,count(*) FILTER(WHERE t.date=(now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date)::int today FROM appointments a JOIN time_slots t ON t.id=a.slot_id")).rows[0];const turns=(await q("SELECT a.id appointment_id,a.status,a.admin_notes,a.created_at,a.updated_at,c.full_name,c.email,c.phone,c.country,c.doc_type,c.doc_number,c.language,s.name service_name,t.date::text,to_char(t.time,'HH24:MI') time,t.status slot_status FROM appointments a JOIN clients c ON c.id=a.client_id JOIN time_slots t ON t.id=a.slot_id JOIN services s ON s.id=t.service_id ORDER BY t.date DESC,t.time LIMIT 500")).rows;res.json({stats,turns})}));
+app.patch('/api/admin/appointments/:id/status',wrap(async(req,res)=>{const target=req.body.status,n=id(req.params.id);await tx(async c=>{await c.query('SELECT pg_advisory_xact_lock(772019)');const a=(await c.query('SELECT * FROM appointments WHERE id=$1 FOR UPDATE',[n])).rows[0];if(!a)throw fail(404,'Turno no encontrado');const transitions={pending:['confirmed','in_progress','cancelled'],confirmed:['in_progress','cancelled'],in_progress:['completed','cancelled'],completed:[],cancelled:[]};if(a.status===target)return;if(!transitions[a.status]?.includes(target))throw fail(409,'Cambio inválido');await c.query('UPDATE appointments SET status=$1,updated_at=now() WHERE id=$2',[target,n]);if(target==='cancelled')await c.query("UPDATE time_slots SET status='available',is_booked=false,client_id=NULL WHERE id=$1",[a.slot_id])});res.json({success:true})}));
+app.put('/api/admin/appointments/:id/notes',wrap(async(req,res)=>{await q('UPDATE appointments SET admin_notes=$1,updated_at=now() WHERE id=$2',[str(req.body.admin_notes,2000),id(req.params.id)]);res.json({success:true})}));
+app.get('/api/admin/services',wrap(async(req,res)=>res.json((await q('SELECT * FROM services ORDER BY name')).rows)));
+app.post('/api/admin/services',wrap(async(req,res)=>{const b=req.body;const row=(await q('INSERT INTO services(name,description,duration_minutes) VALUES($1,$2,$3) RETURNING id',[str(b.name,150,true),str(b.description,1000),duration(b.duration_minutes)])).rows[0];res.json({success:true,id:row.id})}));
+app.put('/api/admin/services/:id',wrap(async(req,res)=>{const b=req.body,n=id(req.params.id);await tx(async c=>{await c.query('SELECT pg_advisory_xact_lock(772019)');const old=(await c.query('SELECT * FROM services WHERE id=$1 FOR UPDATE',[n])).rows[0];if(!old)throw fail(404,'Servicio no encontrado');const d=b.duration_minutes===undefined?old.duration_minutes:duration(b.duration_minutes);if(d!==old.duration_minutes&&(await c.query("SELECT 1 FROM appointments a JOIN time_slots t ON t.id=a.slot_id WHERE t.service_id=$1 AND a.status<>'cancelled' LIMIT 1",[n])).rowCount)throw fail(409,'Servicio con reservas: crea uno nuevo para cambiar duración');await c.query('UPDATE services SET name=$1,description=$2,duration_minutes=$3,is_active=$4 WHERE id=$5',[b.name===undefined?old.name:str(b.name,150,true),b.description===undefined?old.description:str(b.description,1000),d,typeof b.is_active==='boolean'?b.is_active:old.is_active,n])});res.json({success:true})}));
+app.delete('/api/admin/services/:id',wrap(async(req,res)=>{await q('UPDATE services SET is_active=false WHERE id=$1',[id(req.params.id)]);res.json({success:true})}));
+app.get('/api/admin/horarios',(req,res)=>res.json(['Mon','Tue','Wed','Thu','Fri'].map(day=>({day,start:'09:00',end:'18:00'}))));
+app.use((err,req,res,next)=>{const status=err.status|| (err.code==='23505'?409:500);res.status(status).json({error:status===500?'Error interno':err.status?err.message:'Conflicto'})});
+if(require.main===module&&!process.env.VERCEL)app.listen(process.env.PORT||3000);
+module.exports=app;

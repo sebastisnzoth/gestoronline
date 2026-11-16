@@ -1,9 +1,10 @@
 // ===== Admin Panel Logic =====
 let authToken = null;
+const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // Check existing session
 document.addEventListener('DOMContentLoaded', () => {
-  const token = localStorage.getItem('adminToken');
+  const token = sessionStorage.getItem('adminToken');
   if (token) {
     authToken = token;
     showDashboard();
@@ -27,7 +28,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     
     if (data.token) {
       authToken = data.token;
-      localStorage.setItem('adminToken', data.token);
+      sessionStorage.setItem('adminToken', data.token);
       showDashboard();
     } else {
       document.getElementById('loginError').classList.remove('hidden');
@@ -46,7 +47,7 @@ function showDashboard() {
 }
 
 function logout() {
-  localStorage.removeItem('adminToken');
+  sessionStorage.removeItem('adminToken');
   location.reload();
 }
 
@@ -56,6 +57,7 @@ async function loadStats() {
     const res = await fetch('/api/admin/appointments', {
       headers: { 'Authorization': `Bearer ${authToken}` }
     });
+    if(res.status===401){logout();return;}
     const data = await res.json();
     
     document.getElementById('statTotal').textContent = data.stats.total;
@@ -94,19 +96,19 @@ async function loadAppointments() {
       <div class="border rounded-lg p-4 bg-gray-50">
         <div class="flex justify-between items-start">
           <div>
-            <div class="font-semibold text-gray-900">${turn.full_name}</div>
-            <div class="text-sm text-gray-500">${turn.email}</div>
-            <div class="text-sm text-gray-500">${turn.phone}</div>
+            <div class="font-semibold text-gray-900">${esc(turn.full_name)}</div>
+            <div class="text-sm text-gray-500">${esc(turn.email)}</div>
+            <div class="text-sm text-gray-500">${esc(turn.phone)}</div>
           </div>
           <span class="px-3 py-1 rounded-full text-xs font-medium status-badge-${turn.status}">
             ${getStatusText(turn.status)}
           </span>
         </div>
         <div class="mt-3 text-sm">
-          <div><strong>Servicio:</strong> ${turn.service_name}</div>
-          <div><strong>Fecha/Hora:</strong> ${turn.date} ${turn.time}</div>
-          ${turn.country ? `<div><strong>País:</strong> ${turn.country}</div>` : ''}
-          ${turn.admin_notes ? `<div class="mt-2 text-blue-600"><strong>Nota:</strong> ${turn.admin_notes}</div>` : ''}
+          <div><strong>Servicio:</strong> ${esc(turn.service_name)}</div>
+          <div><strong>Fecha/Hora:</strong> ${esc(turn.date)} ${esc(turn.time)}</div>
+          ${turn.country ? `<div><strong>País:</strong> ${esc(turn.country)}</div>` : ''}
+          ${turn.admin_notes ? `<div class="mt-2 text-blue-600"><strong>Nota:</strong> ${esc(turn.admin_notes)}</div>` : ''}
         </div>
         <div class="mt-3 flex gap-2">
           ${getActionButtons(turn)}
@@ -209,8 +211,8 @@ async function loadServices() {
     container.innerHTML = services.map(s => `
       <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
         <div>
-          <div class="font-medium">${s.name}</div>
-          <div class="text-sm text-gray-500">${s.description || ''}</div>
+          <div class="font-medium">${esc(s.name)}</div>
+          <div class="text-sm text-gray-500">${esc(s.description)}</div>
         </div>
         <div class="flex items-center gap-2">
           <span class="text-sm text-gray-500">⏱ ${s.duration_minutes}min</span>

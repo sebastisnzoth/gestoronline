@@ -143,6 +143,7 @@ const translations = {
 };
 
 let currentLang = 'es';
+const t = key => translations[currentLang]?.[key] ?? translations.es[key] ?? key;
 let currentService = null;
 let currentSlot = null;
 let clientId = null;
@@ -170,6 +171,7 @@ function changeLang(lang) {
 async function loadServices() {
   try {
     const res = await fetch('/api/services');
+    if (!res.ok) throw new Error('No se pudieron cargar los servicios');
     const services = await res.json();
     const grid = document.getElementById('serviceGrid');
     grid.innerHTML = '';
@@ -186,8 +188,10 @@ async function loadServices() {
       `;
       grid.appendChild(card);
     });
+    if (services.length) selectService(services.some(s => s.id === currentService?.id) ? currentService.id : services[0].id);
   } catch (e) {
-    console.error('Error cargando servicios:', e);
+    document.getElementById('serviceGrid').textContent = 'No se pudieron cargar los servicios. Volvé a intentar.';
+    document.getElementById('btnStep1').classList.add('hidden');
   }
 }
 

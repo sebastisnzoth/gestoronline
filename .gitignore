@@ -1,0 +1,12 @@
+# Dependencias y artefactos locales
+node_modules/
+data/turnos.db
+data/turnos.db-shm
+data/turnos.db-wal
+gestoria.db
+
+# Entorno
+.env
+
+# Logs
+*.log

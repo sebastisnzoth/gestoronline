@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gestoría - Turnos Online</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .slot-btn.active { background: #4F46E5; color: white; border-color: #4F46E5; }
+    .slot-btn.disabled { opacity: 0.4; cursor: not-allowed; }
+    .step-hidden { display: none; }
+    input:focus, select:focus { outline: none; ring: 2px; border-color: #4F46E5; }
+  </style>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: { primary: '#4F46E5', secondary: '#7C3AED' } } }
+    }
+  </script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- Header -->
+  <header class="bg-white shadow-sm sticky top-0 z-10">
+    <div class="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center text-white font-bold text-xl">G</div>
+        <div>
+          <h1 class="text-lg font-bold text-gray-900" data-i18n="brandName">Gestoría Internacional</h1>
+          <p class="text-xs text-gray-500" data-i18n="brandTag">Turnos para extranjeros</p>
+        </div>
+      </div>
+      
+      <!-- Language Selector -->
+      <select id="langSelect" onchange="changeLang(this.value)" class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+        <option value="es">🇪🇸 Español</option>
+        <option value="pt">🇧🇷 Português</option>
+        <option value="en">🇬🇧 English</option>
+        <option value="ru">🇷🇺 Русский</option>
+        <option value="zh">🇨🇳 中文</option>
+      </select>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-4xl mx-auto px-4 py-8">
+    
+    <!-- Hero Section -->
+    <section class="text-center mb-10">
+      <h2 class="text-3xl font-bold text-gray-900 mb-3" data-i18n="heroTitle">Sacá tu turno online</h2>
+      <p class="text-gray-600 text-lg" data-i18n="heroSubtitle">Trámites de documentación argentina para extranjeros. Rápido, seguro y sin filas.</p>
+    </section>
+
+    <!-- Progress Steps -->
+    <div class="flex justify-center mb-8">
+      <div class="flex items-center gap-2">
+        <div id="stepInd1" class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center font-semibold text-sm">1</div>
+        <div class="w-12 h-0.5 bg-gray-300" id="line1"></div>
+        <div id="stepInd2" class="w-8 h-8 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center font-semibold text-sm">2</div>
+        <div class="w-12 h-0.5 bg-gray-300" id="line2"></div>
+        <div id="stepInd3" class="w-8 h-8 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center font-semibold text-sm">3</div>
+      </div>
+    </div>
+
+    <!-- Step 1: Service Selection -->
+    <div id="step1" class="bg-white rounded-xl shadow-md p-6 step-hidden">
+      <h3 class="text-xl font-semibold mb-4" data-i18n="step1Title">Seleccioná un servicio</h3>
+      <div id="serviceGrid" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+      <button onclick="nextStep(2)" class="mt-6 w-full bg-primary hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg transition hidden" id="btnStep1">
+        <span data-i18n="btnContinue">Continuar</span>
+      </button>
+    </div>
+
+    <!-- Step 2: Date & Time -->
+    <div id="step2" class="bg-white rounded-xl shadow-md p-6 step-hidden">
+      <button onclick="prevStep(1)" class="text-gray-500 hover:text-gray-700 mb-4 text-sm">← <span data-i18n="btnBack">Volver</span></button>
+      <h3 class="text-xl font-semibold mb-4" data-i18n="step2Title">Seleccioná fecha y hora</h3>
+      <div id="slotsContainer" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2"></div>
+      <button onclick="nextStep(3)" class="mt-6 w-full bg-primary hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg transition hidden" id="btnStep2">
+        <span data-i18n="btnContinue">Continuar</span>
+      </button>
+    </div>
+
+    <!-- Step 3: Registration -->
+    <div id="step3" class="bg-white rounded-xl shadow-md p-6 step-hidden">
+      <button onclick="prevStep(2)" class="text-gray-500 hover:text-gray-700 mb-4 text-sm">← <span data-i18n="btnBack">Volver</span></button>
+      <h3 class="text-xl font-semibold mb-4" data-i18n="step3Title">Completá tus datos</h3>
+      <form id="regForm" class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" data-i18n="labelName">Nombre completo *</label>
+            <input type="text" id="fullName" required class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" data-i18n="labelEmail">Email *</label>
+            <input type="email" id="email" required class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" data-i18n="labelPhone">Teléfono / WhatsApp *</label>
+            <input type="tel" id="phone" required placeholder="+54 9 11 ..." class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" data-i18n="labelCountry">País de residencia</label>
+            <input type="text" id="country" placeholder="Ej: Brasil, Chile, Bolivia..." class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" data-i18n="labelDocType">Tipo de documento</label>
+            <select id="docType" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+              <option value="passport">Pasaporte</option>
+              <option value="dni">DNI</option>
+              <option value="foreign_id">Cédula de Extranjería</option>
+              <option value="other">Otro</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" data-i18n="labelDocNumber">N° de documento</label>
+            <input type="text" id="docNumber" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1" data-i18n="labelNotes">Notas (opcional)</label>
+          <textarea id="notes" rows="2" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" data-i18n-placeholder="placeholderNotes" placeholder="¿Alguna consulta o detalle adicional?"></textarea>
+        </div>
+        
+        <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-lg transition flex items-center justify-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+          <span data-i18n="btnConfirm">Confirmar Turno</span>
+        </button>
+      </form>
+    </div>
+
+    <!-- Confirmation Screen -->
+    <div id="confirmation" class="bg-white rounded-xl shadow-md p-8 text-center hidden">
+      <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+      </div>
+      <h3 class="text-2xl font-bold text-gray-900 mb-2" data-i18n="confTitle">¡Turno confirmado!</h3>
+      <p class="text-gray-600 mb-6" data-i18n="confMsg">Hemos registrado tu solicitud. Recibirás una confirmación por correo y WhatsApp.</p>
+      <div class="bg-indigo-50 rounded-lg p-4 mb-6 text-left">
+        <p class="font-semibold text-gray-800" id="confirmDetails"></p>
+      </div>
+      <button onclick="location.reload()" class="bg-primary text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition" data-i18n="btnNewTurn">Sacar otro turno</button>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-gray-900 text-gray-400 py-8 mt-12">
+    <div class="max-w-4xl mx-auto px-4 text-center">
+      <p class="text-sm" data-i18n="footerText">© 2026 Gestoría Internacional. Todos los derechos reservados.</p>
+      <p class="text-xs mt-2" data-i18n="footerNote">Atención personalizada para extranjeros en Argentina.</p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

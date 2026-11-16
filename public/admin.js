@@ -117,6 +117,8 @@ async function loadAppointments() {
         <div class="mt-3 text-sm space-y-1">
           <div><strong>${isMulti ? `Servicios (${svcList.length}):` : 'Servicio:'}</strong> ${servicesMarkup}</div>
           <div><strong>Fecha/Hora:</strong> ${esc(turn.date)} · ${timeRange}${durationInfo}</div>
+          <div><strong>Modalidad:</strong> ${turn.appointment_mode==='whatsapp'?'WhatsApp':turn.appointment_mode==='in_person'?'Presencial':'No especificada'}</div>
+          ${turn.appointment_mode==='whatsapp' && /^\\+?[1-9][0-9]{7,14}$/.test(String(turn.phone||'').replace(/[ ()-]/g,'')) ? `<a class="inline-block mt-2 text-green-700 underline" target="_blank" rel="noopener noreferrer" href="https://wa.me/${String(turn.phone).replace(/\\D/g,'')}">Abrir WhatsApp</a>` : ''}
           ${turn.country ? `<div><strong>País:</strong> ${esc(turn.country)}</div>` : ''}
           ${turn.request_details ? `<div class="mt-2 whitespace-pre-wrap"><strong>Solicitud:</strong> ${esc(turn.request_details)}</div>` : ''}
           ${turn.admin_notes ? `<div class="mt-2 text-blue-600"><strong>Nota:</strong> ${esc(turn.admin_notes)}</div>` : ''}

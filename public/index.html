@@ -8,7 +8,34 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { font-family: 'Inter', sans-serif; }
+    :root { --ink:#172136; --muted:#526079; --accent:#4f46e5; --line:#dce1eb; --surface:#f5f6fa; }
+    body { font-family:'Inter',system-ui,sans-serif; color:var(--ink); background:var(--surface); display:flex; flex-direction:column; }
+    body > main { width:100%; flex:1; max-width:65rem!important; padding-top:3.5rem!important; }
+    header > div, footer > div { max-width:65rem!important; }
+    header { border-bottom:1px solid var(--line); box-shadow:none!important; }
+    main > section { margin-bottom:2rem!important; }
+    main > section h2 { font-size:2.5rem!important; font-weight:700; letter-spacing:-.035em; line-height:1.16!important; text-wrap:balance; }
+    main > section p { max-width:44rem; margin-inline:auto; line-height:1.65; color:var(--muted)!important; }
+    #step1,#step2,#step3,#confirmation { border:1px solid var(--line); box-shadow:none!important; border-radius:16px!important; }
+    #step1 { padding:1.75rem!important; }
+    #serviceGrid { gap:0!important; }
+    #serviceGrid > div { position:relative; border:0!important; border-bottom:1px solid var(--line)!important; border-radius:0!important; padding:1.125rem 2.3rem 1.125rem .9rem!important; min-height:6.25rem; transition:background .16s ease; outline:none; }
+    #serviceGrid > div::after { content:''; position:absolute; right:1rem; top:1.45rem; width:18px; height:18px; border:1.5px solid #a5afc1; border-radius:50%; background:white; }
+    #serviceGrid > div:hover { background:#f2f3fc; }
+    #serviceGrid > div.border-primary { background:#eef0ff!important; border-radius:10px!important; }
+    #serviceGrid > div.border-primary::after { border:5px solid var(--accent); }
+    #serviceGrid h4 { font-size:.98rem; line-height:1.4; color:var(--ink); }
+    #serviceGrid p { color:var(--muted)!important; line-height:1.45; }
+    #serviceGrid p:last-child { font-variant-numeric:tabular-nums; font-size:.75rem; }
+    #serviceGrid p:last-child::first-letter { color:inherit; }
+    #btnStep1,#btnStep2 { min-height:48px; font-size:.95rem; }
+    .slot-btn.active .font-semibold,.slot-btn.active .font-medium { color:white!important; }
+    button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible,#serviceGrid > div:focus-visible { outline:3px solid #818cf8!important; outline-offset:3px; }
+    ::selection { background:#dfe2ff; color:#241c83; }
+    footer { background:#172136!important; margin-top:3rem!important; }
+    @media(min-width:768px){ #serviceGrid { column-gap:1.75rem!important; } }
+    @media(max-width:640px){ body > main { padding-top:2rem!important; } main > section h2 { font-size:1.9rem!important; } main > section p { font-size:1rem!important; } #step1,#step2,#step3 { padding:1.15rem!important; } header h1 { font-size:.94rem!important; } header select { max-width:8rem; } header > div { gap:.6rem; } #serviceGrid > div { min-height:5.5rem; } }
+    @media(prefers-reduced-motion:reduce){ *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; } }
     .slot-btn.active { background: #4F46E5; color: white; border-color: #4F46E5; }
     .slot-btn.disabled { opacity: 0.4; cursor: not-allowed; }
     .step-hidden { display: none; }
@@ -20,7 +47,7 @@
     }
   </script>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="min-h-screen">
 
   <!-- Header -->
   <header class="bg-white shadow-sm sticky top-0 z-10">
@@ -34,7 +61,7 @@
       </div>
       
       <!-- Language Selector -->
-      <select id="langSelect" onchange="changeLang(this.value)" class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+      <select aria-label="Idioma / Language" id="langSelect" onchange="changeLang(this.value)" class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
         <option value="es">🇪🇸 Español</option>
         <option value="pt">🇧🇷 Português</option>
         <option value="en">🇬🇧 English</option>
@@ -66,8 +93,8 @@
 
     <!-- Step 1: Service Selection -->
     <div id="step1" class="bg-white rounded-xl shadow-md p-6 step-hidden">
-      <h3 class="text-xl font-semibold mb-4" data-i18n="step1Title">Seleccioná un servicio</h3>
-      <div id="serviceGrid" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+      <h3 class="text-xl font-semibold mb-4" id="serviceHeading" data-i18n="step1Title">Seleccioná un servicio</h3>
+      <div role="group" aria-labelledby="serviceHeading" id="serviceGrid" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
       <button onclick="nextStep(2)" class="mt-6 w-full bg-primary hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg transition hidden" id="btnStep1">
         <span data-i18n="btnContinue">Continuar</span>
       </button>
@@ -141,7 +168,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
       </div>
       <h3 class="text-2xl font-bold text-gray-900 mb-2" data-i18n="confTitle">¡Turno confirmado!</h3>
-      <p class="text-gray-600 mb-6" data-i18n="confMsg">Hemos registrado tu solicitud. Recibirás una confirmación por correo y WhatsApp.</p>
+      <p class="text-gray-600 mb-6" data-i18n="confMsg">Hemos registrado tu solicitud.</p>
       <div class="bg-indigo-50 rounded-lg p-4 mb-6 text-left">
         <p class="font-semibold text-gray-800" id="confirmDetails"></p>
       </div>
@@ -159,5 +186,11 @@
   </footer>
 
   <script src="app.js"></script>
+<script>
+  const serviceGridEl = document.getElementById("serviceGrid");
+  const enhanceServiceCards = () => { for (const card of serviceGridEl.querySelectorAll("[id^=svc-]")) { card.tabIndex=0; card.setAttribute("role","button"); card.setAttribute("aria-pressed",String(card.classList.contains("border-primary"))); card.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();card.click();} }; } };
+  new MutationObserver(enhanceServiceCards).observe(serviceGridEl,{childList:true,subtree:true,attributes:true,attributeFilter:["class"]});
+  document.getElementById("langSelect").addEventListener("change",e=>{document.documentElement.lang=e.target.value});
+</script>
 </body>
 </html>

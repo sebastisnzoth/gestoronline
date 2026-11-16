@@ -108,6 +108,7 @@ async function loadAppointments() {
           <div><strong>Servicio:</strong> ${esc(turn.service_name)}</div>
           <div><strong>Fecha/Hora:</strong> ${esc(turn.date)} ${esc(turn.time)}</div>
           ${turn.country ? `<div><strong>País:</strong> ${esc(turn.country)}</div>` : ''}
+          ${turn.request_details ? `<div class="mt-2 whitespace-pre-wrap"><strong>Solicitud:</strong> ${esc(turn.request_details)}</div>` : ''}
           ${turn.admin_notes ? `<div class="mt-2 text-blue-600"><strong>Nota:</strong> ${esc(turn.admin_notes)}</div>` : ''}
         </div>
         <div class="mt-3 flex gap-2">

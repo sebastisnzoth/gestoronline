@@ -1728,6 +1728,33 @@ function prevStep(step) {
   nextStep(step);
 }
 
+
+const modeWords={
+ es:['Modalidad de atención','Presencial','Por WhatsApp','Te contactaremos al número informado en el horario elegido.','La gestoría te indicará el lugar de atención.'],
+ pt:['Modalidade de atendimento','Presencial','Por WhatsApp','Entraremos em contato pelo número informado no horário escolhido.','A assessoria informará o local de atendimento.'],
+ en:['Appointment type','In person','Via WhatsApp','We will contact the number provided at the selected time.','The office will provide the appointment location.'],
+ ru:['Формат приёма','Лично','Через WhatsApp','Мы свяжемся с вами по указанному номеру в выбранное время.','Мы сообщим место приёма.'],
+ zh:['预约方式','现场办理','通过 WhatsApp','我们将在所选时间联系您提供的号码。','我们将告知办理地点。']
+};
+function modeText(){return modeWords[currentLang]||modeWords.es}
+function modeLabel(value){return value==='whatsapp'?modeText()[2]:value==='in_person'?modeText()[1]:'—'}
+function renderMode(){
+ const host=document.getElementById('appointmentModeBox');
+ if(!host)return;
+ const current=host.querySelector('input:checked')?.value||'in_person';
+ const w=modeText();
+ host.replaceChildren();
+ const title=document.createElement('legend');title.className='field-label mb-3';title.textContent=w[0];host.append(title);
+ const row=document.createElement('div');row.className='grid grid-cols-1 sm:grid-cols-2 gap-3';
+ for(const [value,label] of [['in_person',w[1]],['whatsapp',w[2]]]){
+  const option=document.createElement('label');option.className='flex items-center gap-3 border border-[#E2DDD2] rounded-xl p-4 cursor-pointer bg-white';
+  const radio=document.createElement('input');radio.type='radio';radio.name='appointment_mode';radio.value=value;radio.checked=value===current;radio.required=true;radio.className='accent-[#997331] w-5 h-5';const text=document.createElement('span');text.className='font-semibold text-navy-900';text.textContent=label;option.append(radio,text);row.append(option);
+ }
+ const hint=document.createElement('p');hint.className='text-sm text-[#4E5B70] mt-3';hint.setAttribute('role','status');
+ const refresh=()=>{const value=host.querySelector('input:checked')?.value;hint.textContent=value==='whatsapp'?w[3]:w[4];row.querySelectorAll('label').forEach(l=>{l.classList.toggle('bg-[#F7F1E3]',l.querySelector('input').checked)});};
+ host.append(row,hint);row.addEventListener('change',refresh);refresh()
+}
+
 // ===== Step 3: Multi-Service Booking Review & Submission =====
 function renderReview() {
   const form = document.getElementById('regForm');
@@ -1774,6 +1801,9 @@ function renderReview() {
     detailsGrid.append(p);
   });
   box.append(detailsGrid);
+  let modeBox=document.getElementById('appointmentModeBox');
+  if(!modeBox){modeBox=document.createElement('fieldset');modeBox.id='appointmentModeBox';modeBox.className='mb-6';form.prepend(modeBox)}
+  renderMode();
 }
 
 function showFormError(msg) {
@@ -1807,6 +1837,7 @@ function renderConfirmationDetails(receipt) {
     [t('confDuration'), `<span class="font-semibold text-navy-900 tabular-nums">${escapeHtml(receipt.total_duration_minutes)} ${escapeHtml(t('minUnit'))}</span>`],
     [t('confDate'), `<span class="font-semibold text-navy-900 tabular-nums">${escapeHtml(receipt.date)}</span>`],
     [t('confTime'), `<span class="font-semibold text-navy-900 tabular-nums">${escapeHtml(receipt.time_window)} (${escapeHtml(t('timezoneLabel'))})</span>`],
+    [modeText()[0], escapeHtml(modeLabel(receipt.appointment_mode))],
     [t('confClient'), `<span class="font-semibold text-navy-900">${escapeHtml(receipt.full_name)}</span>`]
   ];
 
@@ -1931,6 +1962,8 @@ document.getElementById('regForm').addEventListener('submit', async e => {
     .join('\n\n')
     .slice(0, 2500);
 
+  const appointmentMode=document.querySelector('input[name="appointment_mode"]:checked')?.value;
+  if(!appointmentMode){showFormError(modeText()[0]);return;}
   const fullName = document.getElementById('fullName').value.trim();
   const payload = {
     full_name: fullName,
@@ -1968,7 +2001,8 @@ document.getElementById('regForm').addEventListener('submit', async e => {
         client_id: clientId,
         registration_token: regData.registration_token,
         slot_id: currentSlot.slot_id,
-        service_ids: selectedServices.map(s => s.id)
+        service_ids: selectedServices.map(s => s.id),
+        appointment_mode: appointmentMode
       })
     });
     const bookData = await bookRes.json();
@@ -1976,6 +2010,7 @@ document.getElementById('regForm').addEventListener('submit', async e => {
 
     lastBookingReceipt = {
       appointment_id: bookData.appointment_id,
+      appointment_mode: bookData.appointment_mode || appointmentMode,
       services: selectedServices.map(s => ({ ...s })),
       total_duration_minutes: bookData.total_duration_minutes || totalDurationMinutes(),
       date: currentSlot.date,

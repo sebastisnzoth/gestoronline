@@ -296,6 +296,8 @@ app.post(
     await throttle(req, 'book', 30);
     const client = id(req.body.client_id);
     const slot = id(req.body.slot_id);
+    const mode = req.body.appointment_mode ?? 'unspecified';
+    if (!['whatsapp','in_person','unspecified'].includes(mode)) throw fail(400, 'Modalidad inválida');
     if (verify(req.body.registration_token, 'client')?.id !== client) throw fail(401, 'Registro expirado');
 
     const result = await tx(async c => {
@@ -334,8 +336,8 @@ app.post(
 
       const a = (
         await c.query(
-          "INSERT INTO appointments(client_id,slot_id,status,duration_minutes) VALUES($1,$2,'pending',$3) RETURNING id",
-          [client, slot, totalDuration]
+          "INSERT INTO appointments(client_id,slot_id,status,duration_minutes,appointment_mode) VALUES($1,$2,'pending',$3,$4) RETURNING id",
+          [client, slot, totalDuration, mode]
         )
       ).rows[0];
 
@@ -355,6 +357,7 @@ app.post(
       appointment_id: result.appointment_id,
       services: result.services,
       total_duration_minutes: result.total_duration_minutes,
+      appointment_mode: mode,
       notification: 'not_configured'
     });
   })
@@ -374,6 +377,7 @@ app.get(
         SELECT
           a.id AS appointment_id,
           a.status,
+          a.appointment_mode,
           a.admin_notes,
           a.created_at,
           a.updated_at,

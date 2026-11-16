@@ -165,6 +165,7 @@ function changeLang(lang) {
     }
   });
   if(!document.getElementById('step2').classList.contains('step-hidden'))showDateSelector();
+  if(!document.getElementById('step3').classList.contains('step-hidden')&&currentSlot)renderReview();
 }
 
 async function loadServices() {
@@ -249,12 +250,13 @@ async function loadSlots(date, container) {
 function selectSlot(slot, btn) {
   document.querySelectorAll('.slot-btn').forEach(el => el.classList.remove('active'));
   btn.classList.add('active');
+  document.querySelectorAll('.slot-btn').forEach(el=>el.setAttribute('aria-pressed',String(el===btn)));
   currentSlot = slot;
   updateProceed();
 }
 
 function nextStep(step) {
-  if(step===3&&!updateProceed())return;
+  if(step===3&&!updateProceed()){document.querySelector('#requestFields input:invalid')?.reportValidity();return;}
   [1, 2, 3].forEach(n => {
     document.getElementById(`step${n}`).classList.toggle('step-hidden', n !== step);
     const ind = document.getElementById(`stepInd${n}`);
@@ -267,11 +269,8 @@ function nextStep(step) {
   document.getElementById('line2').classList.toggle('bg-primary', step > 2);
   
   if (step === 2) showDateSelector();
-  if (step === 3) {
-    // Check if client exists
-    const email = document.getElementById('email')?.value;
-    if (email) checkExistingClient(email);
-  }
+  if (step === 3) { renderReview(); }
+  window.scrollTo({top:0,behavior:'smooth'});
 }
 
 function prevStep(step) {
@@ -309,7 +308,7 @@ function showDateSelector(){
  if(!currentService)return;
  if(draftService!==currentService.id){requestDraft={};selectedDate='';draftService=currentService.id}
  currentSlot=null;slotSeq++;
- document.getElementById('btnStep2').classList.add('hidden');
+ document.getElementById('btnStep2').classList.remove('hidden');
  el.className='space-y-6';
  el.innerHTML='<div class="rounded-lg bg-indigo-50 border border-indigo-100 p-4"><p class="text-xs text-indigo-700">'+w[0]+'</p><p class="font-semibold text-gray-900">'+escapeHtml(currentService.name)+'</p></div><section><h4 class="font-semibold mb-3">'+w[1]+'</h4><div id="requestFields" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div></section><section><h4 class="font-semibold mb-3">'+w[2]+'</h4><div id="calendarBox" class="border border-gray-200 rounded-xl p-4"></div></section><section><h4 class="font-semibold mb-3">'+w[3]+'</h4><div id="slotsGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2"></div></section>';
  bookingLabels().forEach((label,i)=>{const wrap=document.createElement('label');wrap.className='block text-sm font-medium text-gray-700';wrap.textContent=label+' *';const input=document.createElement('input');input.type='text';input.required=true;input.maxLength=100;input.className='block w-full mt-1 border border-gray-300 rounded-lg p-3';input.value=requestDraft[i]||'';input.oninput=()=>{requestDraft[i]=input.value;updateProceed()};wrap.appendChild(input);document.getElementById('requestFields').appendChild(wrap)});
@@ -330,9 +329,30 @@ function showDateSelector(){
   for(let n=1;n<=days;n++){const d=new Date(month);d.setUTCDate(n);const iso=d.toISOString().slice(0,10);const button=document.createElement('button');button.type='button';button.textContent=n;button.disabled=iso<min||iso>max.toISOString().slice(0,10)||[0,6].includes(d.getUTCDay());button.className='rounded-lg py-2 text-sm '+(iso===selectedDate?'bg-primary text-white':'hover:bg-indigo-50')+' disabled:text-gray-300 disabled:cursor-not-allowed';button.setAttribute('aria-label',iso);button.setAttribute('aria-pressed',String(iso===selectedDate));button.onclick=()=>{selectedDate=iso;currentSlot=null;updateProceed();renderCalendar();loadSlots(iso,document.getElementById('slotsGrid'))};grid.append(button)}
   box.append(grid)
  }
- renderCalendar();if(selectedDate)loadSlots(selectedDate,document.getElementById('slotsGrid'));
+ renderCalendar();updateProceed();if(selectedDate)loadSlots(selectedDate,document.getElementById('slotsGrid'));
 }
-function updateProceed(){const valid=!!currentSlot&&bookingLabels().every((_,i)=>String(requestDraft[i]||'').trim());document.getElementById('btnStep2').classList.toggle('hidden',!valid);return valid}
+function updateProceed(){
+ const fieldsOk=bookingLabels().every((_,i)=>String(requestDraft[i]||'').trim());
+ const valid=!!currentSlot&&fieldsOk;
+ const btn=document.getElementById('btnStep2');
+ btn.classList.remove('hidden');
+ btn.disabled=!valid;
+ btn.classList.toggle('opacity-50',!valid);
+ btn.classList.toggle('cursor-not-allowed',!valid);
+ let hint=document.getElementById('step2Hint');
+ if(!hint){hint=document.createElement('p');hint.id='step2Hint';hint.className='text-sm text-gray-500 mt-3 text-center';hint.setAttribute('role','status');btn.before(hint)}
+ const w=bookingWords[currentLang]||bookingWords.es;
+ hint.textContent=valid?'':!fieldsOk?w[7]:w[8];
+ return valid
+}
+function renderReview(){
+ const form=document.getElementById('regForm'),w=bookingWords[currentLang]||bookingWords.es;
+ let box=document.getElementById('bookingReview');
+ if(!box){box=document.createElement('div');box.id='bookingReview';box.className='rounded-xl border border-indigo-100 bg-indigo-50 p-4 mb-6 space-y-2';form.before(box)}
+ box.replaceChildren();
+ const heading=document.createElement('p');heading.className='font-semibold text-indigo-700';heading.textContent=w[0];box.append(heading);
+ for(const value of [currentService.name,w[8]+': '+currentSlot.date+' · '+currentSlot.time+' (Argentina)',...bookingLabels().map((l,i)=>l+': '+requestDraft[i])]){const p=document.createElement('p');p.className='text-sm text-gray-800';p.textContent=value;box.append(p)}
+}
 
 async function checkExistingClient(email) {
   try {
@@ -360,6 +380,7 @@ document.getElementById('regForm').addEventListener('submit', async (e) => {
   // Show loading state
   const submitBtn = e.target.querySelector('button[type="submit"]');
   const originalText = submitBtn.innerHTML;
+  const back = document.querySelector('#step3 > button'); if(back)back.disabled=true;
   submitBtn.innerHTML = '<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-white mx-auto"></div>';
   submitBtn.disabled = true;
   
@@ -384,7 +405,7 @@ document.getElementById('regForm').addEventListener('submit', async (e) => {
     });
     const bookData = await bookRes.json();
     
-    if (!bookData.success) throw new Error(bookData.error);
+    if (!bookRes.ok || !bookData.success) throw new Error(bookData.error || 'No se pudo registrar la solicitud');
     
     // Show confirmation
     hideSteps();
@@ -400,6 +421,7 @@ document.getElementById('regForm').addEventListener('submit', async (e) => {
     alert(err.message || 'Error al registrar el turno. Intente nuevamente.');
     submitBtn.innerHTML = originalText;
     submitBtn.disabled = false;
+    if(back)back.disabled=false;
   }
 });
 
